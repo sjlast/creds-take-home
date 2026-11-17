@@ -1,4 +1,4 @@
-export type Priority = 'low' | 'normal' | 'high';
+export type Priority = "low" | "normal" | "high";
 
 export interface SupportRequest {
   id: number;
@@ -7,3 +7,9 @@ export interface SupportRequest {
   requester: string;
   createdAt: string;
 }
+
+export type SupportRequestSubmission = Pick<
+  SupportRequest,
+  "title" | "requester"
+> &
+  Partial<Pick<SupportRequest, "priority">>;

@@ -25,7 +25,7 @@ pnpm install
 ## Run
 
 ```sh
-pnpm dev
+pnpm start:dev
 ```
 
 The service listens on <http://127.0.0.1:3000>. Set `PORT` to use another port. Check that it works:
@@ -44,13 +44,16 @@ pnpm typecheck
 
 ## Layout
 
-| Path                | Purpose                                         |
-| ------------------- | ----------------------------------------------- |
-| `src/app.ts`        | The HTTP routes                                 |
-| `src/server.ts`     | Starts the service                              |
-| `src/store.ts`      | The in-memory store and its sample data         |
-| `src/lookup.ts`     | Finds a request by ID                           |
-| `src/notifier.ts`   | The local notifier, which logs messages         |
-| `test/`             | Tests                                           |
-| `docs/behavior.md`  | What the service does, including its settings   |
-| `scripts/submit.mjs`| Packages your work for sending                  |
+| Path                   | Purpose                                                           |
+| ---------------------- | ----------------------------------------------------------------- |
+| `src/app.ts`           | The HTTP routes                                                   |
+| `src/server.ts`        | Starts the service                                                |
+| `src/store.ts`         | The in-memory store and its sample data                           |
+| `src/lookup.ts`        | Finds a request by ID                                             |
+| `src/notifier.ts`      | The local notifier, which logs messages                           |
+| `src/createRequest.ts` | Handles creation of Support requests from user submission details |
+| `src/validator.ts`     | Contains logic for data validations                               |
+| `src/idGenerator.ts`   | A simple in-memory, incrementing ID generator                     |
+| `test/`                | Tests                                                             |
+| `docs/behavior.md`     | What the service does, including its settings                     |
+| `scripts/submit.mjs`   | Packages your work for sending                                    |

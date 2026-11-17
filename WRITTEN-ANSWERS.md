@@ -43,6 +43,22 @@ Give a recommendation, its main tradeoff, and one thing that could change it. St
 
 _Write your answer here._
 
+**Assumptions**
+
+- The existing IT service doesn't have any other functions or features other than those stated (handle Request creation HTTP requests, validation, storage in DB, and support notification).
+- The existing IT service already has code for using the sign-in integration, so it has access to user identity, groups, etc.
+- The company directory has an API for fetching and verifying user groups.
+- A Request is the same thing as a Ticket
+- The service calling the notification SDK is fire-and-forget
+- The Notification SDK allows you to configure the URL it calls to
+
+**Answers**
+
+1. Turn the existing service into the IT Request Service (a microservice-style architecture) that all future applications will call to log support requests. This encapsulates all logic for creation, validation, and storage of the Requests in a single location which can be updated as necessary without impacting other applications. The tradeoff is making the IT Request Service a failure point in the entire system. If it goes down, has network connectivity problems, or any other issue then all other applications are blocked from logging Requests. Having multiple Services running at once in different server locations can maintain availability when services go down or need maintenance. Another tradeoff is causing breaking changes to consumers if the API contract changes. It forces consumers to update their code, but versioning the API can soften that migration and give them time. The alternative, if the Service was a library installed on all Request-generating apps, would be relying on library consumers to update their library versions when contracts changed. That's not always reliable and old libary versions could linger. With a microservice, any consumer would eventually be forced to update their usage or it would break.
+2. For the moment, the simplest thing would be to make the IT Request Service also handle accessing/viewing tickets. Future apps would also need to call this Service to access tickets. When an ticket access API call is made, the user indicated in the request is validated against the company directory to make sure they are in the group(s) claimed and then either shown the requested ticket or rejected. The tradeoff is potentially adding lots more read requests to the system than writes. This can cause writes to be delayed or blocked if the service or database get overwhelmed by read requests. That can be mitigated through various levels of caching, such as a Redis cache, and read-only database replicas. Reading an IT ticket does not _absolutely_ require up-to-date information so a few miliseconds of potential lag when the replicas are updated is tolerable.
+3. Since notification is done by a vendor, have a dummy cloud service that a local instance of the service can point its SDK to which returns a 200 or even a configurable error to aid in testing. Tradeoff is that it's not super realistic and you could miss catching errors that exist in real world usage. If the vendor has a non-prod instance, that would be preferable. A similar dummy service could be used for the company directory to validate group membership and could be seeded with dummy data for testing.
+4. Unit tests for Request validation, database operations, user group validation. Integration tests with the company directory and notification service would still be required.
+
 ### A2. Typed API contract and code generation
 
 **Situation**
@@ -117,6 +133,12 @@ Exact pricing is not needed. Consider engineering time as well as the infrastruc
 **Your answer (fill in only if you pick B1)**
 
 _Write your answer here._
+
+**Answers**
+
+1. Assuming there is sufficient capacity on the managed Kubernetes (k8s) cluster and managed PostgreSQL instance, that capacity isn't needed anytime soon for existing applications on those instances, and given the time constraints, deploy the support application onto those existing managed systems. I don't think that's one of the listed options. The database should have its own tenant to keep its data separate from existing data. Not only will this use underutilized resources already being paid for but it will require less developer time to spin up new VMs or cloud deployments since they're already in place. It's likely it will eventually outgrow the capacity of the managed PostgreSQL instance, but the data in the database can be migrated to a different location when it becomes too large. This should be done during a maintenance window during off-ours. A read-only replica can be stood up to handle any incoming read requests during that time. The API app is stateless and could continue on the k8s cluster for as long as is allowed. Option B is a viable alternative. Assuming the "exsting platform" is whatever the existing IT support app is currently running on and it's not the k8s cluster, that's mostly the same as what I propse but you wouldn't enjoy the auto-scaling or recovery that k8s provides.
+2. Verify actual usage of the app and compare costs between different options. Assuming you're using a cloud provider, you pay a constant rate for running a VM. Kubernetes and cloud apps only for usage. If the price per use multiplied by the stated usage is lower than running a VM, the latter will be more cost effective. Also validate the recovery time for the deployment meets the requirements. If it becomes unavailable, does it automatically spin up a healthy instance? How long does that take to notice and perform? Are there backups on the database? How far back do they go?
+3. Given more time, it would be more maintainable to have a deployment for this app separate from whatever is already on the existing k8s cluster and managed PostgreSQL instance. This separates concerns and prevents accidental impact on the other when doing deploys. Having a separate deployment needs to be cheaper than using exsting underutilized resources. In Azure, at least, you can configure the requirements like disaster recovery, auto scaling, and data retention in a deployment so you could still get those things. I assume those features are similarly available in other cloud providers.
 
 ### B2. CI feedback loop
 
@@ -211,6 +233,12 @@ We care more about your reasoning on tradeoffs than about the most optimized des
 
 _Write your answer here._
 
+**Answers**
+
+1. Coallate request logs by time and user. Compare results to find how many users are on their dashboard in a given space of time, how long a request takes, and look for which kinds of requests take the longest. Also check if the request times increase with number of users making requests. From there, dive into the long running request code and database queries. Determine where the bottleneck is there. You could also use SQL profiling tools to find out which part of slow SQL queries are the cause of slowness. The tradeoff is searching logs could take a while to do by hand if your logging tools don't already let you slice and dice the gathered log metrics.
+2. Batch or include endpoint. Time spent making the request and handling the response on the client side, traveling over the network, and going out to the database on the server side adds up at 50 calls per page. Worst case scenario of all 200 staff checking the dashboard simultaneously at 50 calls per page is 10,000 API calls at once. Reducing overall I/O time with a single API call would save a lot of time. One tradeoff would be leaving the database to handle all the requests, but it should be able to handle 200 calls in a short window.
+3. If evidence showed the database was getting bogged down by heavy simultaneous load, a cache would be the right answer. A lot of the data in a dashboard about support tickets isn't going to be changing second by second, so storing that data in memory would make reads much faster.
+
 ## D. Delivery
 
 ### D1. Delivery under uncertainty
@@ -237,6 +265,16 @@ Give a recommendation, its main tradeoff, and one thing that could change it. St
 **Your answer (fill in only if you pick D1)**
 
 _Write your answer here._
+
+**Assumptions**
+
+- The dashboard doesn't show external ticket status. What it does show is our internal ticket which is logically linked to the external ticket. In other words, the status of the internal ticket should be updated as the external ticket is, which is then reflected on the dashboard.
+
+**Answers**
+
+1. Whether to implement with polling or webhooks hinges on whether every status transition needs to be shown in order. That is the first thing I would clarify. If it is required, polling won't be enough. Polling might lose quick state transitions if multiple happen in between poll calls. So following that confirmation I would check on the supplier's webhook coverage, retry, and replay capabilities. The tradeoff of webhooks is if our service is down when the webhook comes in we can miss the status change without the webhook retrying. That would lead to tickets stuck in an old state and potentially never getting udpated again. That could be resolved with a periodic, perhaps nightly, poll job that updated tickets handled by the supplier using their current-state API.
+2. Polling is faster and easier to implement than webhooks so for a first delivery I would use polling. Webhooks could be added later. This has the potential to miss state changes, as described in answer 1. Assuming integration with the separate escalation workflow isn't needed for the pilot due on Friday, missing state changes won't be an issue. A potential tradeoff of implementing with polling is getting rate limited by the supplier's API. Adding some exponential backoff with jitter to the polling logic could alleviate that. Also, if the polling process dies for some reason, that ticket won't get updated anymore. The periodic status update job mentioned in answer 1 could help with that. It could be tailored to only update tickets that are in an incomplete status to finish quicker.
+3. This change would be useful if it it saved money in some way such as reducing the amount of work support requires to close one of these external tickets. Another indicator of success would be raising awareness of staff on the status of their support tickets. If the deadline was such that we had to narrow the scope, I'd focus on only the absolutely necessary and spelled out requirements.
 
 ### D2. Prototype, then refine or re-spec
 
